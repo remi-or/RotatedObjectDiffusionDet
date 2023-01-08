@@ -22,7 +22,7 @@ from torch import nn, Tensor
 import torch.nn.functional as F
 
 from detectron2.modeling.poolers import ROIPooler
-from detectron2.structures import Boxes
+from detectron2.structures import RotatedBoxes
 
 
 _DEFAULT_SCALE_CLAMP = math.log(100000.0 / 16)
@@ -241,7 +241,7 @@ class RCNNHead(nn.Module):
         # roi_feature.
         proposal_boxes = list()
         for b in range(N):
-            proposal_boxes.append(Boxes(bboxes[b]))
+            proposal_boxes.append(RotatedBoxes(bboxes[b]))
         roi_features = pooler(features, proposal_boxes)
 
         if pro_features is None:
