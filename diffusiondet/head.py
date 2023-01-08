@@ -25,6 +25,7 @@ from detectron2.modeling.poolers import ROIPooler
 from detectron2.structures import Boxes
 
 
+OUTSIZE = 5
 _DEFAULT_SCALE_CLAMP = math.log(100000.0 / 16)
 
 
@@ -92,7 +93,7 @@ class DynamicHead(nn.Module):
 
         # Gaussian random feature embedding layer for time
         self.d_model = d_model
-        time_dim = d_model * 4
+        time_dim = d_model * OUTSIZE
         self.time_mlp = nn.Sequential(
             SinusoidalPositionEmbeddings(d_model),
             nn.Linear(d_model, time_dim),
