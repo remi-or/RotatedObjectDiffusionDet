@@ -25,7 +25,7 @@ from detectron2.modeling.poolers import ROIPooler
 from detectron2.structures import Boxes
 
 
-OUTSIZE = 5
+OUTSIZE = 4
 _DEFAULT_SCALE_CLAMP = math.log(100000.0 / 16)
 
 

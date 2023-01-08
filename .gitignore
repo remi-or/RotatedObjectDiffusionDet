@@ -45,3 +45,4 @@ _darcs
 !/datasets/*.*
 /projects/*/datasets
 
+detectron2/
