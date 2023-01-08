@@ -25,7 +25,6 @@ from detectron2.modeling.poolers import ROIPooler
 from detectron2.structures import Boxes
 
 
-OUTSIZE = 4
 _DEFAULT_SCALE_CLAMP = math.log(100000.0 / 16)
 
 
@@ -93,7 +92,7 @@ class DynamicHead(nn.Module):
 
         # Gaussian random feature embedding layer for time
         self.d_model = d_model
-        time_dim = d_model * OUTSIZE
+        time_dim = d_model * 5
         self.time_mlp = nn.Sequential(
             SinusoidalPositionEmbeddings(d_model),
             nn.Linear(d_model, time_dim),
@@ -177,7 +176,7 @@ class DynamicHead(nn.Module):
 class RCNNHead(nn.Module):
 
     def __init__(self, cfg, d_model, num_classes, dim_feedforward=2048, nhead=8, dropout=0.1, activation="relu",
-                 scale_clamp: float = _DEFAULT_SCALE_CLAMP, bbox_weights=(2.0, 2.0, 1.0, 1.0)):
+                 scale_clamp: float = _DEFAULT_SCALE_CLAMP, bbox_weights=(2.0, 2.0, 1.0, 1.0, 1.0)):
         super().__init__()
 
         self.d_model = d_model
@@ -200,7 +199,7 @@ class RCNNHead(nn.Module):
         self.activation = _get_activation_fn(activation)
 
         # block time mlp
-        self.block_time_mlp = nn.Sequential(nn.SiLU(), nn.Linear(d_model * 4, d_model * 2))
+        self.block_time_mlp = nn.Sequential(nn.SiLU(), nn.Linear(d_model * 5, d_model * 2))
 
         # cls.
         num_cls = cfg.MODEL.DiffusionDet.NUM_CLS
@@ -227,13 +226,13 @@ class RCNNHead(nn.Module):
             self.class_logits = nn.Linear(d_model, num_classes)
         else:
             self.class_logits = nn.Linear(d_model, num_classes + 1)
-        self.bboxes_delta = nn.Linear(d_model, 4)
+        self.bboxes_delta = nn.Linear(d_model, 5)
         self.scale_clamp = scale_clamp
         self.bbox_weights = bbox_weights
 
     def forward(self, features, bboxes, pro_features, pooler, time_emb):
         """
-        :param bboxes: (N, nr_boxes, 4)
+        :param bboxes: (N, nr_boxes, 5)
         :param pro_features: (N, nr_boxes, d_model)
         """
 
@@ -282,19 +281,19 @@ class RCNNHead(nn.Module):
             reg_feature = reg_layer(reg_feature)
         class_logits = self.class_logits(cls_feature)
         bboxes_deltas = self.bboxes_delta(reg_feature)
-        pred_bboxes = self.apply_deltas(bboxes_deltas, bboxes.view(-1, 4))
+        pred_bboxes = self.apply_deltas(bboxes_deltas, bboxes.view(-1, 5))
         
         return class_logits.view(N, nr_boxes, -1), pred_bboxes.view(N, nr_boxes, -1), obj_features
 
     def apply_deltas(self, deltas, boxes):
         """
-        Apply transformation `deltas` (dx, dy, dw, dh) to `boxes`.
+        Apply transformation `deltas` (dx, dy, dw, dh, dt) to `boxes`.
 
         Args:
-            deltas (Tensor): transformation deltas of shape (N, k*4), where k >= 1.
+            deltas (Tensor): transformation deltas of shape (N, k*5), where k >= 1.
                 deltas[i] represents k potentially different class-specific
                 box transformations for the single box boxes[i].
-            boxes (Tensor): boxes to transform, of shape (N, 4)
+            boxes (Tensor): boxes to transform, of shape (N, 5)
         """
         boxes = boxes.to(deltas.dtype)
 
@@ -302,27 +301,33 @@ class RCNNHead(nn.Module):
         heights = boxes[:, 3] - boxes[:, 1]
         ctr_x = boxes[:, 0] + 0.5 * widths
         ctr_y = boxes[:, 1] + 0.5 * heights
+        thetas = boxes[:, 4].remainder(torch.pi)
 
-        wx, wy, ww, wh = self.bbox_weights
-        dx = deltas[:, 0::4] / wx
-        dy = deltas[:, 1::4] / wy
-        dw = deltas[:, 2::4] / ww
-        dh = deltas[:, 3::4] / wh
+        wx, wy, ww, wh, wt = self.bbox_weights
+        dx = deltas[:, 0::5] / wx
+        dy = deltas[:, 1::5] / wy
+        dw = deltas[:, 2::5] / ww
+        dh = deltas[:, 3::5] / wh
+        dt = deltas[:, 4::5] / wt
 
         # Prevent sending too large values into torch.exp()
         dw = torch.clamp(dw, max=self.scale_clamp)
         dh = torch.clamp(dh, max=self.scale_clamp)
+        dt = torch.clamp(dt, max=self.scale_clamp)
 
         pred_ctr_x = dx * widths[:, None] + ctr_x[:, None]
         pred_ctr_y = dy * heights[:, None] + ctr_y[:, None]
         pred_w = torch.exp(dw) * widths[:, None]
         pred_h = torch.exp(dh) * heights[:, None]
+        pred_h = torch.exp(dh) * heights[:, None]
+        pred_t = torch.exp(dt) * thetas[:, None]
 
         pred_boxes = torch.zeros_like(deltas)
-        pred_boxes[:, 0::4] = pred_ctr_x - 0.5 * pred_w  # x1
-        pred_boxes[:, 1::4] = pred_ctr_y - 0.5 * pred_h  # y1
-        pred_boxes[:, 2::4] = pred_ctr_x + 0.5 * pred_w  # x2
-        pred_boxes[:, 3::4] = pred_ctr_y + 0.5 * pred_h  # y2
+        pred_boxes[:, 0::5] = pred_ctr_x - 0.5 * pred_w  # x1
+        pred_boxes[:, 1::5] = pred_ctr_y - 0.5 * pred_h  # y1
+        pred_boxes[:, 2::5] = pred_ctr_x + 0.5 * pred_w  # x2
+        pred_boxes[:, 3::5] = pred_ctr_y + 0.5 * pred_h  # y2
+        pred_boxes[:, 4::5] = pred_t  # theta
 
         return pred_boxes
 
