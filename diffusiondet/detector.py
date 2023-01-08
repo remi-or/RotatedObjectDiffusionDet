@@ -172,6 +172,7 @@ class DiffusionDet(nn.Module):
         x_boxes = ((x_boxes / self.scale) + 1) / 2
         x_boxes = box_cxcywh_to_xyxy(x_boxes)
         x_boxes = x_boxes * images_whwh[:, None, :]
+        print(x_boxes.shape)
         outputs_class, outputs_coord = self.head(backbone_feats, x_boxes, t, None)
 
         x_start = outputs_coord[-1]  # (batch, num_proposals, 4) predict boxes: absolute coordinates (x1, y1, x2, y2)
